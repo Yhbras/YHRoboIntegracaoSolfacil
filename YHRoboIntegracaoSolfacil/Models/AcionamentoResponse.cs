@@ -6,8 +6,10 @@ using System.Threading.Tasks;
 
 namespace YHRoboIntegracaoSolfacil.Models
 {
-    public class Settings
+    public class AcionamentoResponse
     {
-        public int CedenteId { get; set; }
+        public bool Sucesso { get; set; }
+        public int Codigo { get; set; }
+        public string Mensagem { get; set; }
     }
 }
