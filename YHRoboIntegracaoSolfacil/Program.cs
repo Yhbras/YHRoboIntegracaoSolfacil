@@ -27,7 +27,7 @@ namespace YHRoboIntegracaoSolfacil
                 configuration.GetSection("Settings"))
                     .Configure(_settings);
 
-            await YHRoboIntegracaoSolfacilServices.BuscarTabulacoes(_connection.YHBconn, _settings.CedenteId);
+            await YHRoboIntegracaoSolfacilServices.BuscarAcionamentos(_connection.YHBconn, _settings.CedenteId);
         }
 
 

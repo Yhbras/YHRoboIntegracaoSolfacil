@@ -19,7 +19,7 @@ namespace YHRoboIntegracaoSolfacil.Services
     public static class YHRoboIntegracaoSolfacilServices
     {
 
-        public static async Task BuscarTabulacoes(string connection, int cedenteId)
+        public static async Task BuscarAcionamentos(string connection, int cedenteId)
         {
             int tot = 0;
             Console.WriteLine("*************************************************************************");
