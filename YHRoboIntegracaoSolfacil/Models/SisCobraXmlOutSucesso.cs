@@ -7,6 +7,7 @@ using System.Xml.Serialization;
 
 namespace YHRoboIntegracaoSolfacil.Models
 {
+    [XmlRoot(ElementName = "retorno")]
     public class SisCobraXmlOutSucesso
     {
         [XmlElement(ElementName = "codigo")]
