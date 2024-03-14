@@ -105,8 +105,7 @@ namespace YHRoboIntegracaoSolfacil.Services
                         {
                             throw new Exception("Falha ao enviar o acionamento para o fornecedor: Fornecedor não localizado.");
                         }
-
-                        goto proximo;
+                                                
                     }
                     catch (Exception ex)
                     {
@@ -114,8 +113,6 @@ namespace YHRoboIntegracaoSolfacil.Services
                         Console.WriteLine($"ERRO: {ex.Message}");
                     }
                 //}
-
-                proximo:
                     cont = 0;
                     tot = 0;
                     Console.Clear();
