@@ -10,7 +10,7 @@ namespace YHRoboIntegracaoSolfacil
         private static Connections? _connection;
         private static Settings? _settings;
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             var builder = new ConfigurationBuilder()
                        .SetBasePath(Directory.GetCurrentDirectory())
@@ -27,7 +27,7 @@ namespace YHRoboIntegracaoSolfacil
                 configuration.GetSection("Settings"))
                     .Configure(_settings);
 
-            _ = YHRoboIntegracaoSolfacilServices.BuscarTabulacoes(_connection.YHBconn);
+            await YHRoboIntegracaoSolfacilServices.BuscarAcionamentos(_connection.YHBconn, _settings.CedenteId);
         }
 
 

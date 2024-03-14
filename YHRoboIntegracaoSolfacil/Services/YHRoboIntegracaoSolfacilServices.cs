@@ -1,24 +1,34 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using System;
 using System.Collections.Generic;
+using System.ComponentModel.Design;
+using System.Data.Common;
 using System.Linq;
+using System.ServiceModel;
+using System.ServiceModel.Channels;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using System.Xml.Serialization;
+using wsSisCobra;
+using YHRoboIntegracaoSolfacil.Data;
+using YHRoboIntegracaoSolfacil.Models;
 
 namespace YHRoboIntegracaoSolfacil.Services
 {
     public static class YHRoboIntegracaoSolfacilServices
     {
 
-        public static async Task BuscarTabulacoes(string conection)
+        public static async Task BuscarAcionamentos(string connection, int cedenteId)
         {
             int tot = 0;
             Console.WriteLine("*************************************************************************");
             Console.WriteLine($" Robo - Integração SolFacil (Tabulações)");
             Console.WriteLine("*************************************************************************");
             Console.WriteLine();
-            int intervalo = 30;
-
+            int intervalo = 300;
+            DateTime dataExecucaoAtual;
+            ReturnMessage retorno = null;
             bool start = true;
 
             for (int cont = 1; cont <= intervalo; cont++)
@@ -45,98 +55,119 @@ namespace YHRoboIntegracaoSolfacil.Services
                         Console.SetCursorPosition(0, Console.CursorTop);
                         Console.Write($"                                                                                      ");
 
-                        List<MensagemEnvio> envios = YHData.BuscarEnviosWhatsApp(conection, _settings.Procedure);
+                        Fornecedor fornecedor = await YHRoboIntegracaoSolfacilData.GetFornecedor(connection, cedenteId, "SISCOBRA");
 
-                        int? erroEnvioId = null;
-                        int? erroHNId = null;
-
-                        CedenteHorarios horarioExecucao = null;
-                        if (envios != null && envios.Count > 0)
+                        if(fornecedor != null) 
                         {
-                            //Pegar o CEDENTE e consultar os horarios;
-                            horarioExecucao = YHData.BuscarCedenteHorarios(conection, envios[0].CedenteId);
-                        }
+                            DateTime dataUltimaExecucao = await YHRoboIntegracaoSolfacilData.GetUltimaExecucao(connection, cedenteId, "INTEGRACAOTABULACAO");
+                            dataExecucaoAtual = DateTime.Now;
+                            List<AcionamentoRequest> acionamentos = await YHRoboIntegracaoSolfacilData.GetAcoesHumanoSolfacil(connection, cedenteId, dataUltimaExecucao);
 
-                        foreach (var dados in envios)
-                        {
-                            try
+                            foreach (AcionamentoRequest acionamento in acionamentos)
                             {
-                                //Validar o horario
-                                if (dados.BoolAgendamento || ValidarHorario(horarioExecucao))
-                                {
-                                    Retorno retorno = new Retorno();
+                                try
+                                {   
+                                    string xmlIn = CreateAcionamentoXMLRequest(fornecedor, acionamento);
 
-                                    if (dados.TipoFlow.ToUpper() == "BOT")
-                                    {
-                                        retorno = await DigitalManagerServices.EnviarMensagemBot(dados);
-                                    }
-                                    else //if (dados.TipoFlow.ToUpper() == "COMUNICADO")
-                                    {
-                                        retorno = await DigitalManagerServices.EnviarMensagemSimples(dados);
-                                    }
+                                    BasicHttpBinding binding = new BasicHttpBinding();
+                                    binding.Security.Mode = System.ServiceModel.BasicHttpSecurityMode.Transport;
+                                    EndpointAddress endpointAddress = new EndpointAddress(fornecedor.UrlBase);
+                                    var service = new wsSisCobra.WSAssessoriaSoapPortClient(binding, endpointAddress);
 
-                                    //if (retorno.Sucesso)
-                                    //{
-                                    //    if (!string.IsNullOrEmpty(dados.UrlHN))
-                                    //    {
-                                    //        //ENVIAR PARA O HELLO NEXT ********************************************************************
-                                    //        HttpResponseMessage response = EnviarHelloNext(dados.UrlHN, dados.UUIDCliente, dados.IdFlow, dados.IdTemplate, retorno.SessionId, retorno.Id);
+                                    ExecuteResponse responseSoap = await service.ExecuteAsync(fornecedor.Token, fornecedor.CodigoCliente, "INCLUIR_ACIONAMENTO", xmlIn);
 
-                                    //        if (!response.IsSuccessStatusCode)
-                                    //        {
-                                    //            string erroHelloNext = await response.Content.ReadAsStringAsync();
-                                    //            erroHNId = YHData.GravarErroEnvioHelloNext(retorno.Id, retorno.SessionId, erroHelloNext, conection);
-                                    //        }
-                                    //    }
-                                    //}
-                                    //else
-                                    //{
-                                    //    erroEnvioId = YHData.GravarErroEnvioMensagem(retorno.Mensagem, conection);
-                                    //}
+                                    retorno = TratarXmlRetorno(responseSoap.Xmlout);
 
-                                    if (!retorno.Sucesso)
-                                    {
-                                        erroEnvioId = YHData.GravarErroEnvioMensagem(retorno.Mensagem, conection);
-                                    }
-
-                                    YHData.AtualizarEnviosWhatsApp(dados.EnvioId, retorno.Sucesso ? 2 : 3, retorno.Id, erroEnvioId, erroHNId, conection);
                                 }
-                                else
+                                catch (Exception ex)
                                 {
-                                    //Se estiver fora do horario, update para de statusenvio 1 para 4 onde boolagendameto = 0 ou null;
-                                    YHData.AtualizarEnviosForaDoHorario(conection, envios[0].CedenteId);
+                                    retorno.Sucesso = false;
+                                    retorno.Mensagem = ex.Message;
+                                    retorno.Id = 0;
+                                    //_log.GravarLogAsync(usuarioId, origem: origem, jsonNew: JsonConvert.SerializeObject(acionamento), erro: ex.Message);
+                                }
+                                finally
+                                {
+                                    await YHRoboIntegracaoSolfacilData.InserirRetornoAcionamentoSolfacil(connection,  acionamento.CedenteId, acionamento.ClienteId, "INCLUIR_ACIONAMENTO", fornecedor.CodigoCliente, null, int.Parse(acionamento.NuContrato), acionamento.DataAcao,
+                                                                            acionamento.HoraAcao, acionamento.ExternoId, acionamento.DataAgenda, acionamento.NmAnalista, acionamento.Report, acionamento.Tipo,
+                                                                            acionamento.Telefone, acionamento.Email, retorno.Id.Value, retorno.Mensagem, retorno.Sucesso);
                                 }
 
-                            }
-                            catch (Exception ex)
-                            {
-                                string erroEnvio = ex.Message;
+                                tot++;
+                                Console.SetCursorPosition(0, Console.CursorTop);
+                                Console.Write($@"Enviando integração:({acionamentos.Count()}) - Enviado:({tot})");
                             }
 
-                            tot++;
-                            Console.SetCursorPosition(0, Console.CursorTop);
-                            Console.Write($@"Enviando mensagem:({envios.Count()}) - Enviado:({tot})");
+                            //Atualizar ultima execucao 
+                            await YHRoboIntegracaoSolfacilData.AtualizarUltimaExecucao(connection, cedenteId, "INTEGRACAOTABULACAO", dataExecucaoAtual);
                         }
-
-                        goto proximo;
+                        else
+                        {
+                            throw new Exception("Falha ao enviar o acionamento para o fornecedor: Fornecedor não localizado.");
+                        }
+                                                
                     }
                     catch (Exception ex)
                     {
                         string erroBuscaEnvio = ex.Message;
+                        Console.WriteLine($"ERRO: {ex.Message}");
                     }
                 //}
-
-                proximo:
                     cont = 0;
                     tot = 0;
                     Console.Clear();
                     Console.WriteLine("*************************************************************************");
-                    Console.WriteLine($" Robo - Envio WhatsApp Digital Manager ({_settings.Procedure})");
+                    Console.WriteLine($" Robo - Integração SolFacil (Tabulações)");
                     Console.WriteLine("*************************************************************************");
                     Console.WriteLine();
                 }
             }
         }
 
+        private static string CreateAcionamentoXMLRequest(Fornecedor fornecedor, AcionamentoRequest acionamento)
+        {
+            string xmlIn = @$"<incluir_acionamento>
+                                        <cod_assessoria>{fornecedor.CodigoCliente}</cod_assessoria>
+                                        <emp_cliente></emp_cliente>
+                                        <cod_cliente>{acionamento.NuContrato}</cod_cliente>
+                                        <dat_acao>{acionamento.DataAcao}</dat_acao>
+                                        <hor_acao>{acionamento.HoraAcao}</hor_acao>
+                                        <cod_sit>{acionamento.ExternoId}</cod_sit>
+                                        <dat_agenda>{acionamento.DataAgenda}</dat_agenda>
+                                        <nom_operador>{acionamento.NmAnalista}</nom_operador>
+                                        <aca_descricao>{acionamento.Report}</aca_descricao>
+                                        <aca_tipo>{acionamento.Tipo}</aca_tipo>
+                                        <aca_telefone>{acionamento.Telefone}</aca_telefone>
+                                        <aca_email>{acionamento.Email}</aca_email>
+                                      </incluir_acionamento>";
+
+            return xmlIn;
+        }
+
+        private static ReturnMessage TratarXmlRetorno(string responseString)
+        {
+            ReturnMessage retorno = new ReturnMessage();
+            int inicio, fim, length;
+            if (responseString.ToUpper().Contains("<RETORNO>"))
+            {
+                XmlSerializer xmls = new XmlSerializer(typeof(SisCobraXmlOutSucesso));
+                var result = (SisCobraXmlOutSucesso)xmls.Deserialize(new StringReader(responseString));
+
+                retorno.Sucesso = true;
+                retorno.Mensagem = result.descricao;
+                retorno.Id = result.codigo;
+            }
+            else
+            {
+                XmlSerializer xmls = new XmlSerializer(typeof(SisCobraXmlOutErro));
+                var result = (SisCobraXmlOutErro)xmls.Deserialize(new StringReader(responseString));
+
+                retorno.Sucesso = false;
+                retorno.Mensagem = result.descricao;
+                retorno.Id = result.codigo;
+            }
+
+            return retorno;
+        }
     }
 }
